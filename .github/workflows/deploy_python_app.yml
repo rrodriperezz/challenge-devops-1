@@ -1,0 +1,82 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+
+    - name: Upgrade pip
+      run: python -m pip install --upgrade pip
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v1
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v1
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+        push: true
+        tags: ${{ secrets.DOCKER_USERNAME }}/challenge-devops:latest
+
+    - name: Setup SSH agent
+      uses: webfactory/ssh-agent@v0.5.3
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Add VM to known hosts
+      env:
+        VM_HOST: ${{ secrets.VM_HOST }}
+      run: |
+        ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to VM
+      env:
+        VM_HOST: ${{ secrets.VM_HOST }}
+        VM_USER: ${{ secrets.VM_USER }}
+        DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      run: |
+        IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/challenge-devops:latest
+        ssh -o StrictHostKeyChecking=no $VM_USER@$VM_HOST "bash -s" <<-EOF
+          sudo -i
+          export KUBECONFIG=/etc/kubernetes/admin.conf
+          export APP_NAME="challenge-devops"
+          export DOCKER_REGISTRY=${{ secrets.DOCKER_REGISTRY }}
+          export DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+          export DOCKER_PASSWORD=${{ secrets.DOCKER_PASSWORD }}
+          export IMAGE_NAME="${IMAGE_NAME}"
+          export APP_VERSION=latest
+          envsubst < /root/k8s/deployment.yml > /root/k8s/deployment.yml | kubectl apply -f /root/k8s/deployment.yml
+          kubectl rollout status deployment/$APP_NAME
+          envsubst < /root/k8s/service.yml > /root/k8s/service.yml | kubectl apply -f /root/k8s/service.yml
+        EOF
