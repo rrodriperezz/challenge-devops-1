@@ -76,7 +76,7 @@ jobs:
           export DOCKER_PASSWORD=${{ secrets.DOCKER_PASSWORD }}
           export IMAGE_NAME="${IMAGE_NAME}"
           export APP_VERSION=latest
-          envsubst < /root/k8s/deployment.yml > /root/k8s/deployment.yml | kubectl apply -f /root/k8s/deployment.yml
+          envsubst < /root/k8s/deployment.yml | kubectl apply -f -
           kubectl rollout status deployment/$APP_NAME
-          envsubst < /root/k8s/service.yml > /root/k8s/service.yml | kubectl apply -f /root/k8s/service.yml
+          envsubst < /root/k8s/service.yml | kubectl apply -f -
         EOF
